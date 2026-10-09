@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}About · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="card eared about">
+  <img src="{{ url_for('static', filename='catboy.svg') }}" alt="The blog's catboy mascot" width="240" height="260">
+  <div>
+    {# Edit this page in templates/about.html #}
+    <h1>About this blog</h1>
+    <p>
+      I'm {{ author_name }}. I'm learning computer science and this is where
+      I keep my notes.
+    </p>
+    <p>
+      I started writing things down because I kept forgetting them. If you
+      spot a mistake in a post, say so in the comments and I'll fix it.
+    </p>
+    <p><a class="btn" href="{{ url_for('index') }}">Read the posts</a></p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="card eared error-page">
+  <p class="code">{{ code }}</p>
+  <h1>{{ title }}</h1>
+  <p class="muted">{{ message }}</p>
+  <p><a class="btn" href="{{ url_for('index') }}">Back home</a></p>
+</div>
+{% endblock %}

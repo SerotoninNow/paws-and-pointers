@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 260" role="img" aria-label="Catboy mascot in a purple hoodie">
+  <!-- tail -->
+  <path d="M170 236 C218 236 232 192 208 172 C196 162 184 176 196 186" fill="none" stroke="#4a3d7a" stroke-width="15" stroke-linecap="round"/>
+  <path d="M203 169 C196 164 187 174 196 186" fill="none" stroke="#f6f1ff" stroke-width="15" stroke-linecap="round"/>
+
+  <!-- hoodie -->
+  <path d="M50 260 C50 214 82 194 120 194 C158 194 190 214 190 260 Z" fill="#8b7be8"/>
+  <ellipse cx="120" cy="200" rx="54" ry="18" fill="#6f5fd4"/>
+  <path d="M108 208 L105 234 M132 208 L135 234" stroke="#f6f1ff" stroke-width="4" stroke-linecap="round"/>
+  <text x="120" y="252" text-anchor="middle" font-family="ui-monospace, monospace" font-size="17" font-weight="700" fill="#f6f1ff">&lt;/&gt;</text>
+
+  <!-- ears -->
+  <g stroke="#4a3d7a" stroke-width="8" stroke-linejoin="round" fill="#4a3d7a">
+    <path d="M60 94 L50 26 L112 62 Z"/>
+    <path d="M180 94 L190 26 L128 62 Z"/>
+  </g>
+  <path d="M68 80 L60 44 L96 64 Z" fill="#ff9fc6"/>
+  <path d="M172 80 L180 44 L144 64 Z" fill="#ff9fc6"/>
+
+  <!-- hair (back) and face -->
+  <ellipse cx="120" cy="116" rx="74" ry="64" fill="#4a3d7a"/>
+  <ellipse cx="120" cy="134" rx="60" ry="52" fill="#ffe9dc"/>
+
+  <!-- bangs -->
+  <path d="M56 126 C52 72 90 52 120 52 C150 52 188 72 184 126 C176 108 168 98 158 92 L150 118 L138 90 L124 120 L110 90 L96 118 L86 92 C74 98 64 108 56 126 Z" fill="#4a3d7a"/>
+  <path d="M116 56 C108 36 124 26 136 32 C127 36 124 46 127 56 Z" fill="#4a3d7a"/>
+  <path d="M78 84 C88 72 100 68 110 68" fill="none" stroke="#7a6bb8" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- eyes -->
+  <g>
+    <ellipse cx="96" cy="140" rx="12" ry="15" fill="#2b2350"/>
+    <ellipse cx="96" cy="145" rx="8" ry="9" fill="#3fd0c9"/>
+    <circle cx="100" cy="133" r="4.5" fill="#fff"/>
+    <circle cx="91" cy="147" r="2" fill="#fff"/>
+    <ellipse cx="144" cy="140" rx="12" ry="15" fill="#2b2350"/>
+    <ellipse cx="144" cy="145" rx="8" ry="9" fill="#3fd0c9"/>
+    <circle cx="148" cy="133" r="4.5" fill="#fff"/>
+    <circle cx="139" cy="147" r="2" fill="#fff"/>
+  </g>
+
+  <!-- blush, mouth, fang -->
+  <ellipse cx="76" cy="160" rx="10" ry="5" fill="#ff9fc6" opacity=".65"/>
+  <ellipse cx="164" cy="160" rx="10" ry="5" fill="#ff9fc6" opacity=".65"/>
+  <path d="M110 163 Q115 170 120 163 Q125 170 130 163" fill="none" stroke="#2b2350" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M123 166 L125.500 172 L128 166 Z" fill="#fff" stroke="#2b2350" stroke-width="1.500" stroke-linejoin="round"/>
+</svg>

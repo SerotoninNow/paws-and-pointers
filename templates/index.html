@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero">
+  <img src="{{ url_for('static', filename='catboy.svg') }}" alt="The blog's catboy mascot" width="240" height="260">
+  <div class="bubble">
+    <h1>{{ site_name }}</h1>
+    <p>{{ site_tagline }}. I write up what I'm studying and whatever I'm building at the moment. <span class="kaomoji">(=^･ω･^=)</span></p>
+  </div>
+</section>
+
+<h2 class="section-title">
+  {% if tag %}
+    Posts tagged “{{ tag }}” <a class="clear" href="{{ url_for('index') }}">show all</a>
+  {% else %}
+    Latest posts
+  {% endif %}
+</h2>
+
+{% if posts %}
+  <ul class="post-list">
+    {% for post in posts %}
+      <li class="card eared post-card">
+        <h2><a href="{{ url_for('post_detail', slug=post['slug']) }}">{{ post['title'] }}</a></h2>
+        <div class="meta">
+          <time datetime="{{ post['created_at'] }}">{{ post['created_at']|pretty_date }}</time>
+          <span>{{ post['body_md']|reading_time }} min read</span>
+          <span>{{ post['n_comments'] }} comment{{ '' if post['n_comments'] == 1 else 's' }}</span>
+        </div>
+        {% if post['summary'] %}<p>{{ post['summary'] }}</p>{% endif %}
+        <div class="tags">
+          {% for t in post['tags']|tag_list %}
+            <a class="tag" href="{{ url_for('index', tag=t) }}">#{{ t }}</a>
+          {% endfor %}
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="card empty">
+    <p>No posts yet.</p>
+  </div>
+{% endif %}
+{% endblock %}

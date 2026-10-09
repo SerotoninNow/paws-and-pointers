@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Sign up · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="card eared auth">
+  <h1>Sign up</h1>
+  <p class="lead">You need an account to comment.</p>
+  <form class="form" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>
+      Username
+      <input type="text" name="username" value="{{ username }}" autocomplete="username"
+             minlength="3" maxlength="20" pattern="[A-Za-z0-9_]+" required autofocus>
+      <span class="hint">3 to 20 characters. Letters, numbers and underscores only.</span>
+    </label>
+    <label>
+      Password
+      <input type="password" name="password" autocomplete="new-password" minlength="8" required>
+      <span class="hint">At least 8 characters.</span>
+    </label>
+    <label>
+      Confirm password
+      <input type="password" name="confirm" autocomplete="new-password" minlength="8" required>
+    </label>
+    <button class="btn" type="submit">Create account</button>
+  </form>
+  <p class="switch">Already have an account? <a href="{{ url_for('login', next=request.args.get('next')) }}">Log in</a></p>
+</div>
+{% endblock %}

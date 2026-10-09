@@ -1,0 +1,7 @@
+.venv/
+instance/
+__pycache__/
+
+# local tooling and unrelated projects in this folder
+.claude/
+phosphor-gbc/

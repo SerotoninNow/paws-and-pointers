@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Edit post' if post else 'New post' }} · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="card eared">
+  <h1>{{ 'Edit post' if post else 'New post' }}</h1>
+  <form class="form" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>
+      Title
+      <input type="text" name="title" value="{{ form['title'] }}" maxlength="150" required>
+    </label>
+    <label>
+      Summary
+      <input type="text" name="summary" value="{{ form['summary'] }}" maxlength="300">
+      <span class="hint">One or two sentences shown on the home page.</span>
+    </label>
+    <label>
+      Tags
+      <input type="text" name="tags" value="{{ form['tags'] }}" maxlength="150" placeholder="algorithms, python, uni">
+      <span class="hint">Separate with commas.</span>
+    </label>
+    <label>
+      Content
+      <textarea class="code" name="body_md" required>{{ form['body_md'] }}</textarea>
+      <span class="hint">Markdown. Use ```python fenced blocks for highlighted code.</span>
+    </label>
+    <div class="form-actions">
+      <button class="btn" type="submit">{{ 'Save changes' if post else 'Publish' }}</button>
+      <a href="{{ url_for('post_detail', slug=post['slug']) if post else url_for('index') }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
