@@ -43,6 +43,32 @@ python3 -m venv .venv
 | Mascot (placeholder for now)  | `static/catboy.svg`                    |
 | Logo (placeholder for now)    | `static/favicon.svg`                   |
 
+## Hosting on more than one device
+
+`host.py` runs the site with gunicorn on `127.0.0.1:8000` and keeps the
+database synced with a private GitHub repo (`paws-and-pointers-data`), so
+different devices can take turns hosting the same blog.
+
+```bash
+.venv/bin/python host.py
+```
+
+- On start it pulls the newest snapshot. While running it pushes a new one
+  every 5 minutes if something changed. On stop (Ctrl+C) it pushes a last one.
+- **One device at a time.** The data repo records who is hosting, and a second
+  device refuses to start until the first has stopped. If the first one
+  crashed or is definitely off, start with `--force`.
+- If two devices both end up with changes the other doesn't have, they can't
+  be merged. Start with `--use-remote` to take GitHub's copy (this device's is
+  kept as `instance/conflict-*.db`) or `--use-local` to keep this device's.
+- `instance/secret_key` is not synced, so visitors are logged out when the
+  host changes.
+
+Setting up a new device: log in with `gh auth login`, clone this repo, create
+the virtualenv as above, then run `host.py`. It clones the data repo into
+`instance/` by itself. Point Tailscale at it with
+`tailscale funnel --bg 8000`.
+
 ## Security
 
 - **SQL injection:** every query passes values as `?` parameters. The one

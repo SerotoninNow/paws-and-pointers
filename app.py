@@ -101,6 +101,13 @@ app.config.update(
     MAX_CONTENT_LENGTH=1024 * 1024,
 )
 
+# Set TRUST_PROXY=1 when the app is only reachable through one reverse proxy
+# (e.g. Tailscale Serve/Funnel), so per-IP rate limits see the real visitor.
+if os.environ.get("TRUST_PROXY") == "1":
+    from werkzeug.middleware.proxy_fix import ProxyFix
+
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 # A hash to compare against when the username doesn't exist, so login takes
 # the same time either way.
 DUMMY_HASH = generate_password_hash(secrets.token_hex(16))
