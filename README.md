@@ -40,7 +40,8 @@ python3 -m venv .venv
 | Site name, tagline, your name | top of `app.py`                        |
 | About page text               | `templates/about.html`                 |
 | Colours and fonts             | the `:root` block in `static/style.css`|
-| Mascot                        | `static/catboy.svg`                    |
+| Mascot (placeholder for now)  | `static/catboy.svg`                    |
+| Logo (placeholder for now)    | `static/favicon.svg`                   |
 
 ## Security
 
