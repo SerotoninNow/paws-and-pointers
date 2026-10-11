@@ -21,11 +21,27 @@
       <input type="text" name="tags" value="{{ form['tags'] }}" maxlength="150" placeholder="algorithms, python, uni">
       <span class="hint">Separate with commas.</span>
     </label>
-    <label>
-      Content
-      <textarea class="code" name="body_md" required>{{ form['body_md'] }}</textarea>
-      <span class="hint">Markdown. Use ```python fenced blocks for highlighted code.</span>
-    </label>
+    <div class="field">
+      <label for="post-body">Content</label>
+      {# app.js hides this textarea and edits the post as blocks in #post-blocks. #}
+      <textarea class="code" name="body_md" id="post-body" required
+                data-upload-url="{{ url_for('upload_media') }}"
+                data-preview-url="{{ url_for('preview') }}">{{ form['body_md'] }}</textarea>
+      <div class="blocks" id="post-blocks" hidden></div>
+      <span class="hint">Text is Markdown; use ```python fenced blocks for highlighted code. Paste or drop an image and it appears in the text at the cursor. Drag an image's bottom-right corner to resize it.</span>
+    </div>
+    <div class="editor-tools">
+      <label class="btn ghost small" for="post-image-input">Add image</label>
+      <input type="file" id="post-image-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
+      <span class="hint" id="upload-status" role="status"></span>
+    </div>
+    <div class="preview-box">
+      <div class="preview-head">
+        <strong>Preview</strong>
+        <span class="hint">How the post will look once published.</span>
+      </div>
+      <div class="prose" id="post-preview"></div>
+    </div>
     <div class="form-actions">
       <button class="btn" type="submit">{{ 'Save changes' if post else 'Publish' }}</button>
       <a href="{{ url_for('post_detail', slug=post['slug']) if post else url_for('index') }}">Cancel</a>

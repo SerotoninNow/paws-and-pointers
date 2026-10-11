@@ -45,4 +45,13 @@ CREATE TABLE IF NOT EXISTS likes (
     PRIMARY KEY (post_id, user_id)
 );
 
+-- Images pasted into posts, re-encoded as WebP and served at /media/<id>.
+CREATE TABLE IF NOT EXISTS media (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    image      BLOB NOT NULL,
+    width      INTEGER NOT NULL,
+    height     INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, created_at);

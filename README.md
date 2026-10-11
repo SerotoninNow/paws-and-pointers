@@ -26,6 +26,13 @@ python3 -m venv .venv
   the admin can delete any.
 - Posts are written in Markdown. Use fenced blocks (```` ```python ````) for
   highlighted code.
+- Images in posts: in the editor, paste or drop an image (or use "Add image")
+  and it appears in the text at the cursor, with text boxes above and below
+  it. Add as many as you like. Drag an image's bottom-right corner or type a
+  width to resize it. A post is still stored as Markdown: each image is a line
+  like `![a cat](/media/12){ width=400 }`. Images are shrunk to at most 1600px
+  wide, re-encoded as WebP and stored in the database. Only the admin can
+  upload.
 - The home page has a search box (matches title, summary, tags and content;
   every word must appear) and a tag menu (the ☰ button). The two combine, e.g. `/?q=sort&tag=python`.
 - Logged-in users can like a post (once each; clicking again takes it back).

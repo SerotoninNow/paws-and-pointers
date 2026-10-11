@@ -23,6 +23,7 @@ from flask import (
     abort,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -75,6 +76,13 @@ CROPS = {
     "fit": ("Show the whole picture, no cropping", None),
 }
 DEFAULT_CROP = "center"
+
+# Images pasted into posts are shrunk to at most this wide and stored as WebP.
+MAX_POST_IMAGE_WIDTH = 1600
+MAX_POST_ANIMATION_WIDTH = 720
+MAX_POST_ANIMATION_BYTES = 4 * 1024 * 1024
+# Width a new image is given in the editor (the post column is about this wide).
+DEFAULT_POST_IMAGE_WIDTH = 720
 
 # Rate limits: name -> (max events, per this many seconds).
 RATE_LIMITS = {
@@ -342,7 +350,8 @@ def safe_next(target):
 def render_markdown(text):
     html = md.markdown(
         text,
-        extensions=["fenced_code", "codehilite", "tables", "sane_lists"],
+        # attr_list lets an image carry a size: ![alt](url){ width=400 }
+        extensions=["fenced_code", "codehilite", "tables", "sane_lists", "attr_list"],
         extension_configs={"codehilite": {"guess_lang": False}},
     )
     return Markup(html)
@@ -677,23 +686,58 @@ def square_frame(frame, crop):
     return ImageOps.fit(frame, size, Image.Resampling.LANCZOS, centering=centering)
 
 
-def encode_animation(frames, durations):
+def shrink_frame(frame, max_width):
+    """Scale one frame down to max_width, keeping its shape."""
+    frame = frame.convert("RGBA")
+    if frame.width > max_width:
+        height = max(1, round(frame.height * max_width / frame.width))
+        frame = frame.resize((max_width, height), Image.Resampling.LANCZOS)
+    return frame
+
+
+def encode_animation(frames, durations, limit=None):
     """Animated WebP of the frames, or None if it can't be made small enough."""
+    limit = limit or MAX_ANIMATION_BYTES
     for quality in (75, 50, 30):
         out = io.BytesIO()
         frames[0].save(
             out, "WEBP", save_all=True, append_images=frames[1:],
             duration=durations, loop=0, quality=quality,
         )
-        if out.tell() <= MAX_ANIMATION_BYTES:
+        if out.tell() <= limit:
             return out.getvalue()
     return None
 
 
 def process_avatar(upload, crop=DEFAULT_CROP):
     """Turn an uploaded picture into small square WebPs: (still, animated).
-    `animated` is None unless the upload moves. Everything is decoded and
-    re-encoded, so only pixels survive: no metadata, no disguised files."""
+    `animated` is None unless the upload moves."""
+    still, animated, _size = process_image(upload, lambda frame: square_frame(frame, crop))
+    return still, animated
+
+
+def process_post_image(upload):
+    """Turn an image pasted into a post into one WebP: (data, width, height).
+    An animated upload stays animated."""
+    data = upload.read()
+    upload.seek(0)
+    try:
+        moving = getattr(Image.open(io.BytesIO(data), formats=AVATAR_FORMATS), "is_animated", False)
+    except Exception:
+        moving = False  # process_image reports the unreadable file
+    width = MAX_POST_ANIMATION_WIDTH if moving else MAX_POST_IMAGE_WIDTH
+    still, animated, size = process_image(
+        upload, lambda frame: shrink_frame(frame, width),
+        quality=90, animation_limit=MAX_POST_ANIMATION_BYTES,
+    )
+    return animated or still, *size
+
+
+def process_image(upload, transform, quality=85, animation_limit=None):
+    """Decode an upload, pass each frame through `transform`, and re-encode as
+    WebP: (still, animated, (width, height)). `animated` is None unless the
+    upload moves. Everything is decoded and re-encoded, so only pixels
+    survive: no metadata, no disguised files."""
     data = upload.read(MAX_AVATAR_BYTES + 1)
     if len(data) > MAX_AVATAR_BYTES:
         raise ValueError(f"Pictures can be at most {MAX_AVATAR_BYTES // (1024 * 1024)} MB.")
@@ -714,14 +758,14 @@ def process_avatar(upload, crop=DEFAULT_CROP):
                     # Browsers treat very short frame times as 100 ms.
                     duration = frame.info.get("duration", 100)
                     durations.append(duration if duration >= 20 else 100)
-                    frames.append(square_frame(frame, crop))
+                    frames.append(transform(frame))
             else:
-                frames = [square_frame(ImageOps.exif_transpose(image), crop)]
+                frames = [transform(ImageOps.exif_transpose(image))]
         out = io.BytesIO()
-        frames[0].save(out, "WEBP", quality=85)
+        frames[0].save(out, "WEBP", quality=quality)
         animated = None
         if len(frames) > 1:
-            animated = encode_animation(frames, durations)
+            animated = encode_animation(frames, durations, animation_limit)
             if animated is None:
                 too_big = "That animation is too long or detailed. Try a shorter one."
                 raise ValueError
@@ -729,7 +773,7 @@ def process_avatar(upload, crop=DEFAULT_CROP):
         raise ValueError(
             too_big or "That file couldn't be read as a picture. Use a JPEG, PNG, WebP or GIF."
         )
-    return out.getvalue(), animated
+    return out.getvalue(), animated, frames[0].size
 
 
 def display_name_taken(name):
@@ -893,6 +937,48 @@ def delete_user(username):
 
 
 # ------------------------------------------------------------ post editing --
+@app.post("/media")
+@admin_required
+def upload_media():
+    """Store an image pasted or dropped into the post editor. Answers with
+    JSON, since the editor's script calls this, not a form."""
+    upload = request.files.get("image")
+    if not upload:
+        return jsonify(error="No image was sent."), 400
+    try:
+        data, width, height = process_post_image(upload)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    db = get_db()
+    cur = db.execute(
+        "INSERT INTO media (image, width, height, created_at) VALUES (?, ?, ?, ?)",
+        (data, width, height, now_iso()),
+    )
+    db.commit()
+    return jsonify(
+        url=url_for("media", media_id=cur.lastrowid),
+        width=min(width, DEFAULT_POST_IMAGE_WIDTH),
+    )
+
+
+@app.route("/media/<int:media_id>")
+def media(media_id):
+    row = get_db().execute("SELECT image FROM media WHERE id = ?", (media_id,)).fetchone()
+    if row is None:
+        abort(404)
+    response = Response(row["image"], mimetype="image/webp")
+    # An image never changes once stored, so it can be cached for good.
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
+
+
+@app.post("/preview")
+@admin_required
+def preview():
+    """Render the editor's Markdown the way the published post will look."""
+    return render_markdown(request.form.get("body_md", ""))
+
+
 def read_post_form():
     return {
         "title": request.form.get("title", "").strip()[:MAX_TITLE_LEN],
