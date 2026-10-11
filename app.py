@@ -30,7 +30,7 @@ from flask import (
     url_for,
 )
 from markupsafe import Markup
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageSequence
 from werkzeug.security import check_password_hash, generate_password_hash
 
 # ---------------------------------------------------------------- settings --
@@ -54,11 +54,27 @@ MAX_DISPLAY_NAME_LEN = 40
 MAX_PRONOUNS_LEN = 30
 MAX_BIO_LEN = 300
 
-# Profile pictures are cropped square, shrunk to this size and stored as WebP.
+# Profile pictures are shrunk to a square of this size, stored as WebP and
+# shown as a circle. Animated ones also keep a moving copy, played on hover.
 AVATAR_SIZE = 256
-MAX_AVATAR_BYTES = 4 * 1024 * 1024
+MAX_AVATAR_BYTES = 8 * 1024 * 1024
 AVATAR_FORMATS = ["JPEG", "PNG", "WEBP", "GIF"]
 Image.MAX_IMAGE_PIXELS = 40_000_000  # refuse absurdly large images
+MAX_ANIMATION_FRAMES = 120  # longer animations are cut off here
+MAX_ANIMATION_PIXELS = 4_000_000  # per frame of the upload
+MAX_ANIMATION_BYTES = 1024 * 1024  # of the stored, shrunk copy
+
+# How an upload is made square: key -> (label, which part to keep). "fit"
+# keeps the whole picture and pads it instead of cropping.
+CROPS = {
+    "center": ("Fill the circle, keep the middle", (0.5, 0.5)),
+    "top": ("Fill the circle, keep the top", (0.5, 0.0)),
+    "bottom": ("Fill the circle, keep the bottom", (0.5, 1.0)),
+    "left": ("Fill the circle, keep the left side", (0.0, 0.5)),
+    "right": ("Fill the circle, keep the right side", (1.0, 0.5)),
+    "fit": ("Show the whole picture, no cropping", None),
+}
+DEFAULT_CROP = "center"
 
 # Rate limits: name -> (max events, per this many seconds).
 RATE_LIMITS = {
@@ -73,7 +89,7 @@ RATE_LIMITS = {
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; script-src 'self'; style-src 'self';"
-        " style-src-attr 'unsafe-inline'; img-src 'self' data: https:;"
+        " style-src-attr 'unsafe-inline'; img-src 'self' data: blob: https:;"
         " object-src 'none'; base-uri 'self'; form-action 'self';"
         " frame-ancestors 'none'"
     ),
@@ -193,6 +209,7 @@ PROFILE_COLUMNS = {
     "pronouns": "TEXT NOT NULL DEFAULT ''",
     "bio": "TEXT NOT NULL DEFAULT ''",
     "avatar_version": "INTEGER NOT NULL DEFAULT 0",
+    "avatar_animated": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -204,6 +221,8 @@ def init_db():
     for name, definition in PROFILE_COLUMNS.items():
         if name not in existing:
             db.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
+    if "animated" not in {row[1] for row in db.execute("PRAGMA table_info(avatars)")}:
+        db.execute("ALTER TABLE avatars ADD COLUMN animated BLOB")
     if db.execute("SELECT COUNT(*) FROM posts").fetchone()[0] == 0:
         db.execute(
             "INSERT INTO posts (slug, title, summary, body_md, tags, created_at)"
@@ -455,7 +474,8 @@ def post_detail(slug):
     post = get_post_or_404(slug)
     db = get_db()
     comments = db.execute(
-        "SELECT c.*, u.username, u.is_admin, u.display_name, u.pronouns, u.avatar_version"
+        "SELECT c.*, u.username, u.is_admin, u.display_name, u.pronouns,"
+        " u.avatar_version, u.avatar_animated"
         " FROM comments c"
         " JOIN users u ON u.id = c.user_id"
         " WHERE c.post_id = ? ORDER BY c.created_at, c.id",
@@ -647,23 +667,69 @@ def clean_text(text, limit, keep_newlines=False):
     return text[:limit].strip()
 
 
-def process_avatar(upload):
-    """Turn an uploaded picture into a small square WebP. The image is decoded
-    and re-encoded, so only pixels survive: no metadata, no disguised files."""
+def square_frame(frame, crop):
+    """Make one frame an AVATAR_SIZE square, cropping or padding as chosen."""
+    frame = frame.convert("RGBA")
+    size = (AVATAR_SIZE, AVATAR_SIZE)
+    centering = CROPS[crop][1]
+    if centering is None:
+        return ImageOps.pad(frame, size, Image.Resampling.LANCZOS, color=(0, 0, 0, 0))
+    return ImageOps.fit(frame, size, Image.Resampling.LANCZOS, centering=centering)
+
+
+def encode_animation(frames, durations):
+    """Animated WebP of the frames, or None if it can't be made small enough."""
+    for quality in (75, 50, 30):
+        out = io.BytesIO()
+        frames[0].save(
+            out, "WEBP", save_all=True, append_images=frames[1:],
+            duration=durations, loop=0, quality=quality,
+        )
+        if out.tell() <= MAX_ANIMATION_BYTES:
+            return out.getvalue()
+    return None
+
+
+def process_avatar(upload, crop=DEFAULT_CROP):
+    """Turn an uploaded picture into small square WebPs: (still, animated).
+    `animated` is None unless the upload moves. Everything is decoded and
+    re-encoded, so only pixels survive: no metadata, no disguised files."""
     data = upload.read(MAX_AVATAR_BYTES + 1)
     if len(data) > MAX_AVATAR_BYTES:
         raise ValueError(f"Pictures can be at most {MAX_AVATAR_BYTES // (1024 * 1024)} MB.")
+    too_big = None
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             image = Image.open(io.BytesIO(data), formats=AVATAR_FORMATS)
-            image = ImageOps.exif_transpose(image).convert("RGBA")
-        image = ImageOps.fit(image, (AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS)
+            moving = getattr(image, "is_animated", False)
+            if moving and image.width * image.height > MAX_ANIMATION_PIXELS:
+                too_big = "That animation's frames are too large. Shrink it and try again."
+                raise ValueError
+            if moving:
+                frames, durations = [], []
+                for frame in ImageSequence.Iterator(image):
+                    if len(frames) >= MAX_ANIMATION_FRAMES:
+                        break
+                    # Browsers treat very short frame times as 100 ms.
+                    duration = frame.info.get("duration", 100)
+                    durations.append(duration if duration >= 20 else 100)
+                    frames.append(square_frame(frame, crop))
+            else:
+                frames = [square_frame(ImageOps.exif_transpose(image), crop)]
         out = io.BytesIO()
-        image.save(out, "WEBP", quality=85)
+        frames[0].save(out, "WEBP", quality=85)
+        animated = None
+        if len(frames) > 1:
+            animated = encode_animation(frames, durations)
+            if animated is None:
+                too_big = "That animation is too long or detailed. Try a shorter one."
+                raise ValueError
     except Exception:
-        raise ValueError("That file couldn't be read as a picture. Use a JPEG, PNG, WebP or GIF.")
-    return out.getvalue()
+        raise ValueError(
+            too_big or "That file couldn't be read as a picture. Use a JPEG, PNG, WebP or GIF."
+        )
+    return out.getvalue(), animated
 
 
 def display_name_taken(name):
@@ -690,6 +756,9 @@ def settings():
         }
         upload = request.files.get("avatar")
         remove = request.form.get("remove_avatar") == "1"
+        crop = request.form.get("crop", DEFAULT_CROP)
+        if crop not in CROPS:
+            crop = DEFAULT_CROP
         picture = None
         error = None
         if rate_limited("profile", g.user["id"]):
@@ -698,7 +767,7 @@ def settings():
             error = "That display name belongs to someone else. Pick another."
         elif upload and upload.filename:
             try:
-                picture = process_avatar(upload)
+                picture = process_avatar(upload, crop)
             except ValueError as exc:
                 error = str(exc)
 
@@ -710,18 +779,22 @@ def settings():
                 (form["display_name"], form["pronouns"], form["bio"], g.user["id"]),
             )
             if picture:
+                still, animated = picture
                 db.execute(
-                    "INSERT OR REPLACE INTO avatars (user_id, image) VALUES (?, ?)",
-                    (g.user["id"], picture),
+                    "INSERT OR REPLACE INTO avatars (user_id, image, animated) VALUES (?, ?, ?)",
+                    (g.user["id"], still, animated),
                 )
                 # The version goes in the picture's URL so browsers fetch the new one.
                 db.execute(
-                    "UPDATE users SET avatar_version = ? WHERE id = ?",
-                    (int(time.time()), g.user["id"]),
+                    "UPDATE users SET avatar_version = ?, avatar_animated = ? WHERE id = ?",
+                    (int(time.time()), int(animated is not None), g.user["id"]),
                 )
             elif remove:
                 db.execute("DELETE FROM avatars WHERE user_id = ?", (g.user["id"],))
-                db.execute("UPDATE users SET avatar_version = 0 WHERE id = ?", (g.user["id"],))
+                db.execute(
+                    "UPDATE users SET avatar_version = 0, avatar_animated = 0 WHERE id = ?",
+                    (g.user["id"],),
+                )
             db.commit()
             flash("Profile saved.", "ok")
             return redirect(url_for("settings"))
@@ -735,15 +808,22 @@ def settings():
             "bio": MAX_BIO_LEN,
             "avatar_mb": MAX_AVATAR_BYTES // (1024 * 1024),
         },
+        crops=CROPS,
+        default_crop=DEFAULT_CROP,
     )
 
 
 @app.route("/avatar/<int:user_id>")
-def avatar(user_id):
-    row = get_db().execute("SELECT image FROM avatars WHERE user_id = ?", (user_id,)).fetchone()
-    if row is None:
+@app.route("/avatar/<int:user_id>/animated", defaults={"animated": True}, endpoint="avatar_animated")
+def avatar(user_id, animated=False):
+    """The still picture, or the moving copy that plays on hover."""
+    column = "animated" if animated else "image"  # one of two fixed names
+    row = get_db().execute(
+        f"SELECT {column} FROM avatars WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    if row is None or row[0] is None:
         abort(404)
-    response = Response(row["image"], mimetype="image/webp")
+    response = Response(row[0], mimetype="image/webp")
     # Safe to cache for good: the URL changes whenever the picture does.
     response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
@@ -761,7 +841,55 @@ def profile(username):
         " WHERE c.user_id = ? ORDER BY c.created_at DESC, c.id DESC LIMIT 10",
         (user["id"],),
     ).fetchall()
-    return render_template("profile.html", user=user, comments=comments)
+    n_comments = db.execute(
+        "SELECT COUNT(*) FROM comments WHERE user_id = ?", (user["id"],)
+    ).fetchone()[0]
+    return render_template("profile.html", user=user, comments=comments, n_comments=n_comments)
+
+
+# -------------------------------------------------------------- moderation --
+def get_user_or_404(username):
+    user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    if user is None:
+        abort(404)
+    return user
+
+
+@app.route("/admin/users")
+@admin_required
+def admin_users():
+    users = get_db().execute(
+        "SELECT u.*, (SELECT COUNT(*) FROM comments c WHERE c.user_id = u.id) AS n_comments"
+        " FROM users u ORDER BY u.created_at DESC, u.id DESC"
+    ).fetchall()
+    return render_template("users.html", users=users)
+
+
+@app.post("/user/<username>/delete-comments")
+@admin_required
+def delete_user_comments(username):
+    """Remove everything this account has commented, but keep the account."""
+    user = get_user_or_404(username)
+    db = get_db()
+    removed = db.execute("DELETE FROM comments WHERE user_id = ?", (user["id"],)).rowcount
+    db.commit()
+    flash(f"Deleted {removed} comment{'' if removed == 1 else 's'} by @{user['username']}.", "ok")
+    return redirect(url_for("profile", username=user["username"]))
+
+
+@app.post("/user/<username>/delete")
+@admin_required
+def delete_user(username):
+    """Delete an account. Its comments, likes and picture go with it (the
+    tables reference users with ON DELETE CASCADE)."""
+    user = get_user_or_404(username)
+    if user["is_admin"]:
+        abort(403)  # never the blog's owner, which includes yourself
+    db = get_db()
+    db.execute("DELETE FROM users WHERE id = ?", (user["id"],))
+    db.commit()
+    flash(f"Deleted the account @{user['username']} and everything it posted.", "ok")
+    return redirect(url_for("admin_users"))
 
 
 # ------------------------------------------------------------ post editing --

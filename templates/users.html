@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_macros.html" import avatar %}
+
+{% block title %}Accounts · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="card eared">
+  <h1 class="page-title">Accounts ({{ users|length }})</h1>
+  <p class="muted">Newest first. Open an account to delete its comments or the account itself.</p>
+  <ul class="user-list">
+    {% for u in users %}
+      <li>
+        {{ avatar(u['id'], u) }}
+        <div>
+          <a class="who" href="{{ url_for('profile', username=u['username']) }}">{{ u|shown_name }}</a>
+          {% if u['is_admin'] %}<span class="badge">author</span>{% endif %}
+          <div class="meta">
+            <span>@{{ u['username'] }}</span>
+            {% if u['pronouns'] %}<span>{{ u['pronouns'] }}</span>{% endif %}
+            <span>joined {{ u['created_at']|pretty_date }}</span>
+            <span>{{ u['n_comments'] }} comment{{ '' if u['n_comments'] == 1 else 's' }}</span>
+          </div>
+          {% if u['bio'] %}<p class="bio">{{ u['bio']|truncate(160) }}</p>{% endif %}
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

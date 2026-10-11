@@ -10,12 +10,23 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <div class="picture-row">
-      {{ avatar(g.user['id'], g.user, large=true) }}
+      <span id="avatar-current">{{ avatar(g.user['id'], g.user, large=true) }}</span>
+      <img class="avatar-img large" id="avatar-preview" alt="Preview of the new picture" width="96" height="96" hidden>
       <div class="fields">
         <label>
           Profile picture
-          <input type="file" name="avatar" accept="image/jpeg,image/png,image/webp,image/gif">
-          <span class="hint">JPEG, PNG, WebP or GIF, up to {{ limits['avatar_mb'] }} MB. It gets cropped to a square.</span>
+          <input type="file" name="avatar" id="avatar-input" accept="image/jpeg,image/png,image/webp,image/gif">
+          <span class="hint">JPEG, PNG, WebP or GIF, up to {{ limits['avatar_mb'] }} MB. It's shown as a circle. Animated GIFs play when someone hovers over them.</span>
+        </label>
+        {# Shown by app.js once a file is chosen. #}
+        <label id="avatar-crop-field" hidden>
+          Cropping
+          <select name="crop" id="avatar-crop">
+            {% for key, (label, _) in crops.items() %}
+              <option value="{{ key }}"{{ ' selected' if key == default_crop }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <span class="hint">The preview shows how it will look.</span>
         </label>
         {% if g.user['avatar_version'] %}
           <label class="check">

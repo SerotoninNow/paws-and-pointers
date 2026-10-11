@@ -8,13 +8,15 @@ CREATE TABLE IF NOT EXISTS users (
     pronouns      TEXT NOT NULL DEFAULT '',
     bio           TEXT NOT NULL DEFAULT '',
     -- 0 when there is no profile picture, otherwise the time it was set
-    avatar_version INTEGER NOT NULL DEFAULT 0
+    avatar_version INTEGER NOT NULL DEFAULT 0,
+    avatar_animated INTEGER NOT NULL DEFAULT 0
 );
 
 -- Kept apart from users so loading a user never drags the picture along.
 CREATE TABLE IF NOT EXISTS avatars (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    image   BLOB NOT NULL
+    image   BLOB NOT NULL,  -- still picture
+    animated BLOB           -- moving copy, if the upload was animated
 );
 
 CREATE TABLE IF NOT EXISTS posts (

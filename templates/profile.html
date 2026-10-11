@@ -23,6 +23,20 @@
       <a class="btn ghost small" href="{{ url_for('settings') }}">Edit profile</a>
     </div>
   {% endif %}
+  {% if g.user and g.user['is_admin'] and not user['is_admin'] %}
+    <div class="admin-bar">
+      <form method="post" action="{{ url_for('delete_user_comments', username=user['username']) }}"
+            data-confirm="Delete all {{ n_comments }} comment(s) by @{{ user['username'] }}? This can't be undone.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn danger small" type="submit"{{ ' disabled' if not n_comments }}>Delete all comments ({{ n_comments }})</button>
+      </form>
+      <form method="post" action="{{ url_for('delete_user', username=user['username']) }}"
+            data-confirm="Delete the account @{{ user['username'] }}, along with its comments, likes and picture? This can't be undone.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn danger small" type="submit">Delete account</button>
+      </form>
+    </div>
+  {% endif %}
 </div>
 
 <section class="comments">

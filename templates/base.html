@@ -21,7 +21,10 @@
         <a href="{{ url_for('index') }}">Posts</a>
         <a href="{{ url_for('about') }}">About</a>
         {% if g.user %}
-          {% if g.user['is_admin'] %}<a href="{{ url_for('new_post') }}">+ New post</a>{% endif %}
+          {% if g.user['is_admin'] %}
+            <a href="{{ url_for('new_post') }}">+ New post</a>
+            <a href="{{ url_for('admin_users') }}">Accounts</a>
+          {% endif %}
           <a href="{{ url_for('settings') }}" title="Profile settings">{{ g.user|shown_name }}</a>
           <form method="post" action="{{ url_for('logout') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

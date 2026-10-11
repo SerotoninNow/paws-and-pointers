@@ -27,6 +27,9 @@
 /* --------------------------------------------------------------- base -- */
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Rules like `.form label { display: grid }` would otherwise un-hide these. */
+[hidden] { display: none !important; }
+
 html { scroll-behavior: smooth; }
 
 body {
@@ -423,7 +426,7 @@ main { flex: 1; padding: 28px 0 56px; }
 .form label { display: grid; gap: 6px; font-weight: 700; }
 .form .hint { font-weight: 500; font-size: 0.86rem; color: var(--muted); }
 
-input[type="text"], input[type="password"], input[type="search"], textarea {
+input[type="text"], input[type="password"], input[type="search"], textarea, .form select {
   width: 100%;
   padding: 11px 14px;
   border: 3px solid var(--border);
@@ -432,7 +435,7 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
   color: var(--text);
   background: var(--bg);
 }
-input:focus, textarea:focus { outline: none; border-color: var(--primary); }
+input:focus, textarea:focus, .form select:focus { outline: none; border-color: var(--primary); }
 textarea { resize: vertical; min-height: 110px; }
 textarea.code { min-height: 420px; font-family: var(--mono); font-size: 0.9rem; line-height: 1.55; }
 
@@ -466,6 +469,22 @@ input[type="file"]::file-selector-button {
 .profile-comments { display: grid; gap: 12px; list-style: none; margin: 0; padding: 0; }
 .profile-comments li { padding: 14px 18px; }
 .profile-comments p { margin: 4px 0 0; overflow-wrap: anywhere; }
+
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* admin account list */
+.page-title { margin: 0 0 6px; font-size: 1.7rem; }
+.user-list { display: grid; gap: 0; list-style: none; margin: 18px 0 0; padding: 0; }
+.user-list li {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 2px solid var(--border);
+}
+.user-list .who { font-weight: 800; color: var(--text); text-decoration: none; }
+.user-list .who:hover { color: var(--primary-strong); text-decoration: underline; }
+.user-list .bio { margin: 4px 0 0; font-size: 0.92rem; overflow-wrap: anywhere; }
 
 .auth { max-width: 440px; margin: 0 auto; }
 .auth h1 { margin: 0 0 16px; font-size: 1.7rem; }

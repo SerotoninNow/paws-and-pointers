@@ -33,8 +33,15 @@ python3 -m venv .venv
   commented, via the Sort dropdown or `?sort=newest|oldest|liked|commented`.
 - Every account has a profile at `/user/<username>` and a settings page
   (click your name in the header) for a display name, pronouns, a bio and a
-  profile picture. Pictures are cropped to a 256px square, re-encoded as WebP
-  and stored in the database, so they sync along with everything else.
+  profile picture. Pictures are shown as a circle; the uploader chooses which
+  part to keep or to show the whole picture uncropped. Animated GIFs are
+  allowed and play only while hovered. Pictures are shrunk to 256px,
+  re-encoded as WebP and stored in the database, so they sync along with
+  everything else.
+- Moderation: the admin can delete any single comment, and from a person's
+  profile can delete all their comments or the whole account (which removes
+  its comments, likes and picture too). The "Accounts" link in the header
+  lists every account. A deleted account's username can be registered again.
 - Data lives in `instance/blog.db`. Delete that file to start fresh.
 
 ## Make it yours
@@ -88,7 +95,8 @@ the virtualenv as above, then run `host.py`. It clones the data repo into
 - **Passwords** are stored as salted hashes, never in plain text.
 - **Uploads:** profile pictures are decoded and re-encoded on the server, so
   only pixels are kept (no metadata, no files disguised as images). Uploads
-  are capped at 4 MB and profile saves at 10 per minute per user.
+  are capped at 8 MB, animations at 120 frames and 1 MB once shrunk, and
+  profile saves at 10 per minute per user.
 - **Impersonation:** a display name can't match another account's username or
   display name, and the username is always shown beside it.
 
