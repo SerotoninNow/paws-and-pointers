@@ -25,4 +25,11 @@ CREATE TABLE IF NOT EXISTS comments (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS likes (
+    post_id    INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (post_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, created_at);

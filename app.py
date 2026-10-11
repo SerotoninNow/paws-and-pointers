@@ -39,6 +39,16 @@ DB_PATH = INSTANCE_DIR / "blog.db"
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 MIN_PASSWORD_LEN = 8
 MAX_COMMENT_LEN = 2000
+MAX_QUERY_LEN = 100
+
+# Home page orderings: key -> (label, ORDER BY clause).
+SORTS = {
+    "newest": ("Newest first", "p.created_at DESC, p.id DESC"),
+    "oldest": ("Oldest first", "p.created_at ASC, p.id ASC"),
+    "liked": ("Most liked", "n_likes DESC, p.created_at DESC, p.id DESC"),
+    "commented": ("Most commented", "n_comments DESC, p.created_at DESC, p.id DESC"),
+}
+DEFAULT_SORT = "newest"
 
 
 def load_secret_key():
@@ -272,16 +282,51 @@ def get_post_or_404(slug):
 
 
 # ------------------------------------------------------------------- pages --
+def matches_search(post, terms):
+    """True if every search term appears somewhere in the post."""
+    haystack = " ".join(
+        (post["title"], post["summary"], post["tags"], post["body_md"])
+    ).casefold()
+    return all(term in haystack for term in terms)
+
+
 @app.route("/")
 def index():
     tag = request.args.get("tag", "").strip().lower()
+    query = " ".join(request.args.get("q", "").split())[:MAX_QUERY_LEN]
+    sort = request.args.get("sort", DEFAULT_SORT)
+    if sort not in SORTS:
+        sort = DEFAULT_SORT
     posts = get_db().execute(
-        "SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS n_comments"
-        " FROM posts p ORDER BY p.created_at DESC, p.id DESC"
+        "SELECT p.*,"
+        " (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS n_comments,"
+        " (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS n_likes"
+        f" FROM posts p ORDER BY {SORTS[sort][1]}"
     ).fetchall()
+
+    # Every tag on the blog with its post count, for the filter bar.
+    tag_counts = {}
+    for p in posts:
+        for t in {t.lower() for t in tag_list(p["tags"])}:
+            tag_counts[t] = tag_counts.get(t, 0) + 1
+    all_tags = sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))
+
     if tag:
         posts = [p for p in posts if tag in [t.lower() for t in tag_list(p["tags"])]]
-    return render_template("index.html", posts=posts, tag=tag)
+    if query:
+        terms = query.casefold().split()
+        posts = [p for p in posts if matches_search(p, terms)]
+    return render_template(
+        "index.html",
+        posts=posts,
+        tag=tag,
+        query=query,
+        all_tags=all_tags,
+        sort=sort,
+        sorts=SORTS,
+        # Left out of links when it's the default, to keep URLs short.
+        sort_param=sort if sort != DEFAULT_SORT else None,
+    )
 
 
 @app.route("/about")
@@ -292,19 +337,46 @@ def about():
 @app.route("/post/<slug>")
 def post_detail(slug):
     post = get_post_or_404(slug)
-    comments = get_db().execute(
+    db = get_db()
+    comments = db.execute(
         "SELECT c.*, u.username, u.is_admin FROM comments c"
         " JOIN users u ON u.id = c.user_id"
         " WHERE c.post_id = ? ORDER BY c.created_at, c.id",
         (post["id"],),
     ).fetchall()
+    n_likes = db.execute(
+        "SELECT COUNT(*) FROM likes WHERE post_id = ?", (post["id"],)
+    ).fetchone()[0]
+    liked = g.user is not None and db.execute(
+        "SELECT 1 FROM likes WHERE post_id = ? AND user_id = ?", (post["id"], g.user["id"])
+    ).fetchone() is not None
     return render_template(
         "post.html",
         post=post,
+        n_likes=n_likes,
+        liked=liked,
         body_html=render_markdown(post["body_md"]),
         comments=comments,
         max_comment_len=MAX_COMMENT_LEN,
     )
+
+
+# ------------------------------------------------------------------- likes --
+@app.post("/post/<slug>/like")
+@login_required
+def toggle_like(slug):
+    """Like the post, or take the like back if this user already liked it."""
+    post = get_post_or_404(slug)
+    db = get_db()
+    key = (post["id"], g.user["id"])
+    removed = db.execute("DELETE FROM likes WHERE post_id = ? AND user_id = ?", key).rowcount
+    if not removed:
+        db.execute(
+            "INSERT INTO likes (post_id, user_id, created_at) VALUES (?, ?, ?)",
+            (*key, now_iso()),
+        )
+    db.commit()
+    return redirect(url_for("post_detail", slug=slug) + "#like")
 
 
 # ---------------------------------------------------------------- comments --

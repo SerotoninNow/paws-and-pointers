@@ -26,6 +26,11 @@ python3 -m venv .venv
   the admin can delete any.
 - Posts are written in Markdown. Use fenced blocks (```` ```python ````) for
   highlighted code.
+- The home page has a search box (matches title, summary, tags and content;
+  every word must appear) and a tag menu (the ☰ button). The two combine, e.g. `/?q=sort&tag=python`.
+- Logged-in users can like a post (once each; clicking again takes it back).
+  The home page can be sorted newest first, oldest first, most liked or most
+  commented, via the Sort dropdown or `?sort=newest|oldest|liked|commented`.
 - Data lives in `instance/blog.db`. Delete that file to start fresh.
 
 ## Make it yours

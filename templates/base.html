@@ -6,15 +6,6 @@
   <title>{% block title %}{{ site_name }}{% endblock %}</title>
   <meta name="description" content="{{ site_tagline }}">
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <script>
-    // Set the theme before first paint to avoid a flash.
-    (function () {
-      var saved = null;
-      try { saved = localStorage.getItem("theme"); } catch (e) {}
-      var dark = saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-      document.documentElement.dataset.theme = dark ? "dark" : "light";
-    })();
-  </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='pygments.css') }}">
 </head>
@@ -39,7 +30,6 @@
           <a href="{{ url_for('login') }}">Log in</a>
           <a href="{{ url_for('register') }}">Sign up</a>
         {% endif %}
-        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle dark mode">🌙</button>
       </nav>
     </div>
   </header>
@@ -64,19 +54,5 @@
       &copy; {{ year }} {{ author_name }} · {{ site_name }}
     </div>
   </footer>
-
-  <script>
-    (function () {
-      var btn = document.getElementById("theme-toggle");
-      var root = document.documentElement;
-      function paint() { btn.textContent = root.dataset.theme === "dark" ? "☀️" : "🌙"; }
-      btn.addEventListener("click", function () {
-        root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
-        try { localStorage.setItem("theme", root.dataset.theme); } catch (e) {}
-        paint();
-      });
-      paint();
-    })();
-  </script>
 </body>
 </html>

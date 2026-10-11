@@ -30,6 +30,20 @@
   </header>
 
   <div class="prose">{{ body_html }}</div>
+
+  <div class="like-bar" id="like">
+    {% if g.user %}
+      <form method="post" action="{{ url_for('toggle_like', slug=post['slug']) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn like{{ ' liked' if liked else ' ghost' }}" type="submit" aria-pressed="{{ 'true' if liked else 'false' }}">
+          <span aria-hidden="true">{{ '♥' if liked else '♡' }}</span> {{ 'Liked' if liked else 'Like' }}
+        </button>
+      </form>
+    {% else %}
+      <a class="btn like ghost" href="{{ url_for('login', next=request.path) }}"><span aria-hidden="true">♡</span> Log in to like</a>
+    {% endif %}
+    <span class="muted">{{ n_likes }} like{{ '' if n_likes == 1 else 's' }}</span>
+  </div>
 </article>
 
 <section class="comments" id="comments">

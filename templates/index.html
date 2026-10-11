@@ -9,12 +9,70 @@
   </div>
 </section>
 
-<h2 class="section-title">
-  {% if tag %}
-    Posts tagged “{{ tag }}” <a class="clear" href="{{ url_for('index') }}">show all</a>
-  {% else %}
-    Latest posts
+<div class="filters">
+  <form class="search" method="get" action="{{ url_for('index') }}" role="search">
+    {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
+    {% if sort_param %}<input type="hidden" name="sort" value="{{ sort_param }}">{% endif %}
+    <input type="search" name="q" value="{{ query }}" maxlength="100"
+           placeholder="Search posts…" aria-label="Search posts">
+    <button class="btn" type="submit">Search</button>
+  </form>
+
+  {% if all_tags %}
+    <details class="tag-menu{{ ' filtered' if tag else '' }}" id="tag-menu">
+      <summary class="btn ghost" aria-label="Filter by tag" title="Filter by tag">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </summary>
+      <nav class="tag-menu-panel" aria-label="Filter by tag">
+        <a{{ '' if tag else ' class="active" aria-current="true"'|safe }} href="{{ url_for('index', q=query or None, sort=sort_param) }}">All posts</a>
+        {% for t, count in all_tags %}
+          {% if t == tag %}
+            <a class="active" aria-current="true" title="Remove this filter" href="{{ url_for('index', q=query or None, sort=sort_param) }}">#{{ t }} <span class="count">{{ count }}</span></a>
+          {% else %}
+            <a href="{{ url_for('index', tag=t, q=query or None, sort=sort_param) }}">#{{ t }} <span class="count">{{ count }}</span></a>
+          {% endif %}
+        {% endfor %}
+      </nav>
+    </details>
+    <script>
+      // Close the tag menu on Escape or a click outside it.
+      (function () {
+        var menu = document.getElementById("tag-menu");
+        document.addEventListener("click", function (e) {
+          if (!menu.contains(e.target)) menu.open = false;
+        });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape") menu.open = false;
+        });
+      })();
+    </script>
   {% endif %}
+</div>
+
+<h2 class="section-title">
+  {% if query or tag %}
+    {{ posts|length }} post{{ '' if posts|length == 1 else 's' }}
+    {% if query %}matching “{{ query }}”{% endif %}
+    {% if tag %}tagged “{{ tag }}”{% endif %}
+    <a class="clear" href="{{ url_for('index') }}">show all</a>
+  {% else %}
+    {{ 'Latest posts' if sort == 'newest' else 'Posts' }}
+  {% endif %}
+  <form class="sort" method="get" action="{{ url_for('index') }}">
+    {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+    {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
+    <label>
+      Sort
+      <select name="sort" onchange="this.form.submit()">
+        {% for key, (label, _) in sorts.items() %}
+          <option value="{{ key }}"{{ ' selected' if key == sort else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <noscript><button class="btn ghost small" type="submit">Go</button></noscript>
+  </form>
 </h2>
 
 {% if posts %}
@@ -25,6 +83,7 @@
         <div class="meta">
           <time datetime="{{ post['created_at'] }}">{{ post['created_at']|pretty_date }}</time>
           <span>{{ post['body_md']|reading_time }} min read</span>
+          <span>{{ post['n_likes'] }} like{{ '' if post['n_likes'] == 1 else 's' }}</span>
           <span>{{ post['n_comments'] }} comment{{ '' if post['n_comments'] == 1 else 's' }}</span>
         </div>
         {% if post['summary'] %}<p>{{ post['summary'] }}</p>{% endif %}
@@ -38,7 +97,11 @@
   </ul>
 {% else %}
   <div class="card empty">
-    <p>No posts yet.</p>
+    {% if query or tag %}
+      <p>No posts match that. <a href="{{ url_for('index') }}">Show all posts</a></p>
+    {% else %}
+      <p>No posts yet.</p>
+    {% endif %}
   </div>
 {% endif %}
 {% endblock %}
