@@ -3,11 +3,14 @@
 Run with:  .venv/bin/python app.py
 """
 
+import io
 import os
 import re
 import secrets
 import sqlite3
 import time
+import unicodedata
+import warnings
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from functools import wraps
@@ -16,6 +19,7 @@ from pathlib import Path
 import markdown as md
 from flask import (
     Flask,
+    Response,
     abort,
     flash,
     g,
@@ -26,6 +30,7 @@ from flask import (
     url_for,
 )
 from markupsafe import Markup
+from PIL import Image, ImageOps
 from werkzeug.security import check_password_hash, generate_password_hash
 
 # ---------------------------------------------------------------- settings --
@@ -45,12 +50,22 @@ MAX_COMMENT_LEN = 2000
 MAX_TITLE_LEN = 150
 MAX_SUMMARY_LEN = 300
 MAX_TAGS_LEN = 150
+MAX_DISPLAY_NAME_LEN = 40
+MAX_PRONOUNS_LEN = 30
+MAX_BIO_LEN = 300
+
+# Profile pictures are cropped square, shrunk to this size and stored as WebP.
+AVATAR_SIZE = 256
+MAX_AVATAR_BYTES = 4 * 1024 * 1024
+AVATAR_FORMATS = ["JPEG", "PNG", "WEBP", "GIF"]
+Image.MAX_IMAGE_PIXELS = 40_000_000  # refuse absurdly large images
 
 # Rate limits: name -> (max events, per this many seconds).
 RATE_LIMITS = {
     "login": (8, 15 * 60),  # failed logins per IP address
     "register": (5, 60 * 60),  # new accounts per IP address
     "comment": (5, 60),  # comments per user
+    "profile": (10, 60),  # profile saves per user
 }
 
 # Sent with every response. Scripts may only come from /static, so injected
@@ -98,7 +113,8 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     # Set SESSION_COOKIE_SECURE=1 when serving over HTTPS.
     SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
-    MAX_CONTENT_LENGTH=1024 * 1024,
+    # Room for a profile picture upload plus the rest of the form.
+    MAX_CONTENT_LENGTH=MAX_AVATAR_BYTES + 1024 * 1024,
 )
 
 # Set TRUST_PROXY=1 when the app is only reachable through one reverse proxy
@@ -170,10 +186,24 @@ And tables:
 """
 
 
+# Columns added to users after the first release. schema.sql has them for new
+# databases; init_db adds whichever are missing to an existing one.
+PROFILE_COLUMNS = {
+    "display_name": "TEXT NOT NULL DEFAULT ''",
+    "pronouns": "TEXT NOT NULL DEFAULT ''",
+    "bio": "TEXT NOT NULL DEFAULT ''",
+    "avatar_version": "INTEGER NOT NULL DEFAULT 0",
+}
+
+
 def init_db():
     INSTANCE_DIR.mkdir(exist_ok=True)
     db = sqlite3.connect(DB_PATH)
     db.executescript((BASE_DIR / "schema.sql").read_text())
+    existing = {row[1] for row in db.execute("PRAGMA table_info(users)")}
+    for name, definition in PROFILE_COLUMNS.items():
+        if name not in existing:
+            db.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
     if db.execute("SELECT COUNT(*) FROM posts").fetchone()[0] == 0:
         db.execute(
             "INSERT INTO posts (slug, title, summary, body_md, tags, created_at)"
@@ -323,6 +353,12 @@ def hue(name):
     return sum(ord(c) for c in name.lower()) * 37 % 360
 
 
+@app.template_filter("shown_name")
+def shown_name(user):
+    """The display name if the user set one, otherwise the username."""
+    return user["display_name"] or user["username"]
+
+
 @app.context_processor
 def inject_globals():
     return {
@@ -419,7 +455,8 @@ def post_detail(slug):
     post = get_post_or_404(slug)
     db = get_db()
     comments = db.execute(
-        "SELECT c.*, u.username, u.is_admin FROM comments c"
+        "SELECT c.*, u.username, u.is_admin, u.display_name, u.pronouns, u.avatar_version"
+        " FROM comments c"
         " JOIN users u ON u.id = c.user_id"
         " WHERE c.post_id = ? ORDER BY c.created_at, c.id",
         (post["id"],),
@@ -521,7 +558,10 @@ def register():
             error = f"Passwords can be at most {MAX_PASSWORD_LEN} characters."
         elif password != confirm:
             error = "Those passwords don't match."
-        elif db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
+        elif db.execute(
+            "SELECT 1 FROM users WHERE username = ? OR display_name = ? COLLATE NOCASE",
+            (username, username),
+        ).fetchone():
             error = "That username is already taken."
         elif rate_limited("register", client_ip()):
             error = "Too many new accounts from this address. Try again later."
@@ -580,6 +620,148 @@ def logout():
     session.clear()
     flash("Logged out.", "ok")
     return redirect(url_for("index"))
+
+
+# ---------------------------------------------------------------- profiles --
+# Characters that reorder the text around them; stripped from profile fields.
+BIDI_CONTROLS = set("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+
+
+def clean_text(text, limit, keep_newlines=False):
+    """Drop control characters and tidy whitespace in a profile field."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    kept = []
+    for ch in text:
+        if ch == "\n" and keep_newlines:
+            kept.append(ch)
+        elif ch in BIDI_CONTROLS or unicodedata.category(ch) in ("Cc", "Cs", "Co", "Cn"):
+            kept.append(" ")
+        else:
+            kept.append(ch)
+    text = "".join(kept)
+    if keep_newlines:
+        lines = [" ".join(line.split()) for line in text.split("\n")]
+        text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    else:
+        text = " ".join(text.split())
+    return text[:limit].strip()
+
+
+def process_avatar(upload):
+    """Turn an uploaded picture into a small square WebP. The image is decoded
+    and re-encoded, so only pixels survive: no metadata, no disguised files."""
+    data = upload.read(MAX_AVATAR_BYTES + 1)
+    if len(data) > MAX_AVATAR_BYTES:
+        raise ValueError(f"Pictures can be at most {MAX_AVATAR_BYTES // (1024 * 1024)} MB.")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            image = Image.open(io.BytesIO(data), formats=AVATAR_FORMATS)
+            image = ImageOps.exif_transpose(image).convert("RGBA")
+        image = ImageOps.fit(image, (AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        image.save(out, "WEBP", quality=85)
+    except Exception:
+        raise ValueError("That file couldn't be read as a picture. Use a JPEG, PNG, WebP or GIF.")
+    return out.getvalue()
+
+
+def display_name_taken(name):
+    """True if this display name would pass for a different account."""
+    if not name:
+        return False
+    if name.casefold() == AUTHOR_NAME.casefold() and not g.user["is_admin"]:
+        return True
+    return get_db().execute(
+        "SELECT 1 FROM users WHERE id != ? AND (username = ? OR display_name = ? COLLATE NOCASE)",
+        (g.user["id"], name, name),
+    ).fetchone() is not None
+
+
+@app.route("/settings", methods=["GET", "POST"])
+@login_required
+def settings():
+    form = {key: g.user[key] for key in ("display_name", "pronouns", "bio")}
+    if request.method == "POST":
+        form = {
+            "display_name": clean_text(request.form.get("display_name", ""), MAX_DISPLAY_NAME_LEN),
+            "pronouns": clean_text(request.form.get("pronouns", ""), MAX_PRONOUNS_LEN),
+            "bio": clean_text(request.form.get("bio", ""), MAX_BIO_LEN, keep_newlines=True),
+        }
+        upload = request.files.get("avatar")
+        remove = request.form.get("remove_avatar") == "1"
+        picture = None
+        error = None
+        if rate_limited("profile", g.user["id"]):
+            error = "You're saving too fast. Wait a minute and try again."
+        elif display_name_taken(form["display_name"]):
+            error = "That display name belongs to someone else. Pick another."
+        elif upload and upload.filename:
+            try:
+                picture = process_avatar(upload)
+            except ValueError as exc:
+                error = str(exc)
+
+        if error is None:
+            record_event("profile", g.user["id"])
+            db = get_db()
+            db.execute(
+                "UPDATE users SET display_name = ?, pronouns = ?, bio = ? WHERE id = ?",
+                (form["display_name"], form["pronouns"], form["bio"], g.user["id"]),
+            )
+            if picture:
+                db.execute(
+                    "INSERT OR REPLACE INTO avatars (user_id, image) VALUES (?, ?)",
+                    (g.user["id"], picture),
+                )
+                # The version goes in the picture's URL so browsers fetch the new one.
+                db.execute(
+                    "UPDATE users SET avatar_version = ? WHERE id = ?",
+                    (int(time.time()), g.user["id"]),
+                )
+            elif remove:
+                db.execute("DELETE FROM avatars WHERE user_id = ?", (g.user["id"],))
+                db.execute("UPDATE users SET avatar_version = 0 WHERE id = ?", (g.user["id"],))
+            db.commit()
+            flash("Profile saved.", "ok")
+            return redirect(url_for("settings"))
+        flash(error, "error")
+    return render_template(
+        "settings.html",
+        form=form,
+        limits={
+            "display_name": MAX_DISPLAY_NAME_LEN,
+            "pronouns": MAX_PRONOUNS_LEN,
+            "bio": MAX_BIO_LEN,
+            "avatar_mb": MAX_AVATAR_BYTES // (1024 * 1024),
+        },
+    )
+
+
+@app.route("/avatar/<int:user_id>")
+def avatar(user_id):
+    row = get_db().execute("SELECT image FROM avatars WHERE user_id = ?", (user_id,)).fetchone()
+    if row is None:
+        abort(404)
+    response = Response(row["image"], mimetype="image/webp")
+    # Safe to cache for good: the URL changes whenever the picture does.
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
+
+
+@app.route("/user/<username>")
+def profile(username):
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    if user is None:
+        abort(404)
+    comments = db.execute(
+        "SELECT c.id, c.body, c.created_at, p.slug, p.title FROM comments c"
+        " JOIN posts p ON p.id = c.post_id"
+        " WHERE c.user_id = ? ORDER BY c.created_at DESC, c.id DESC LIMIT 10",
+        (user["id"],),
+    ).fetchall()
+    return render_template("profile.html", user=user, comments=comments)
 
 
 # ------------------------------------------------------------ post editing --
@@ -652,12 +834,14 @@ ERRORS = {
     400: ("Bad request", "The form expired. Go back, refresh and try again."),
     403: ("Not allowed", "You don't have permission to do that."),
     404: ("Page not found", "Nothing here. The cat probably knocked it off the desk."),
+    413: ("Too large", "That upload is too big. Go back and try a smaller file."),
 }
 
 
 @app.errorhandler(400)
 @app.errorhandler(403)
 @app.errorhandler(404)
+@app.errorhandler(413)
 def handle_error(err):
     title, message = ERRORS[err.code]
     return render_template("error.html", code=err.code, title=title, message=message), err.code

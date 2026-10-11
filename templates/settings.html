@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_macros.html" import avatar %}
+
+{% block title %}Profile settings · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="card eared settings">
+  <h1>Profile settings</h1>
+  <form class="form" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="picture-row">
+      {{ avatar(g.user['id'], g.user, large=true) }}
+      <div class="fields">
+        <label>
+          Profile picture
+          <input type="file" name="avatar" accept="image/jpeg,image/png,image/webp,image/gif">
+          <span class="hint">JPEG, PNG, WebP or GIF, up to {{ limits['avatar_mb'] }} MB. It gets cropped to a square.</span>
+        </label>
+        {% if g.user['avatar_version'] %}
+          <label class="check">
+            <input type="checkbox" name="remove_avatar" value="1"> Remove my picture
+          </label>
+        {% endif %}
+      </div>
+    </div>
+
+    <label>
+      Display name
+      <input type="text" name="display_name" value="{{ form['display_name'] }}"
+             maxlength="{{ limits['display_name'] }}" placeholder="{{ g.user['username'] }}" autocomplete="nickname">
+      <span class="hint">Shown instead of your username, @{{ g.user['username'] }}. You still log in with the username. Leave empty to use it.</span>
+    </label>
+
+    <label>
+      Pronouns
+      <input type="text" name="pronouns" value="{{ form['pronouns'] }}"
+             maxlength="{{ limits['pronouns'] }}" list="pronoun-options" placeholder="e.g. they/them">
+      <span class="hint">Shown next to your name. Optional.</span>
+    </label>
+    <datalist id="pronoun-options">
+      <option value="he/him"></option>
+      <option value="she/her"></option>
+      <option value="they/them"></option>
+      <option value="he/they"></option>
+      <option value="she/they"></option>
+      <option value="it/its"></option>
+      <option value="any pronouns"></option>
+    </datalist>
+
+    <label>
+      Bio
+      <textarea name="bio" maxlength="{{ limits['bio'] }}">{{ form['bio'] }}</textarea>
+      <span class="hint">Up to {{ limits['bio'] }} characters, shown on your profile page.</span>
+    </label>
+
+    <div class="form-actions">
+      <button class="btn" type="submit">Save</button>
+      <a href="{{ url_for('profile', username=g.user['username']) }}">View my profile</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

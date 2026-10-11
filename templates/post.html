@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% from "_macros.html" import avatar %}
+
 {% block title %}{{ post['title'] }} · {{ site_name }}{% endblock %}
 
 {% block content %}
@@ -53,10 +55,12 @@
     <ol class="comment-list">
       {% for c in comments %}
         <li class="card comment" id="comment-{{ c['id'] }}">
-          <div class="avatar" style="--hue: {{ c['username']|hue }}" aria-hidden="true">{{ c['username'][0] }}</div>
+          {{ avatar(c['user_id'], c) }}
           <div>
             <div class="comment-head">
-              <strong>{{ c['username'] }}</strong>
+              <a class="who" href="{{ url_for('profile', username=c['username']) }}">{{ c|shown_name }}</a>
+              {% if c['display_name'] %}<span class="handle">@{{ c['username'] }}</span>{% endif %}
+              {% if c['pronouns'] %}<span class="pronouns">{{ c['pronouns'] }}</span>{% endif %}
               {% if c['is_admin'] %}<span class="badge">author</span>{% endif %}
               <time datetime="{{ c['created_at'] }}">{{ c['created_at']|pretty_date }}</time>
               {% if g.user and (g.user['id'] == c['user_id'] or g.user['is_admin']) %}
@@ -80,7 +84,7 @@
     <form class="card form" method="post" action="{{ url_for('add_comment', slug=post['slug']) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>
-        Commenting as {{ g.user['username'] }}
+        Commenting as {{ g.user|shown_name }}
         <textarea name="body" maxlength="{{ max_comment_len }}" required></textarea>
       </label>
       <div class="form-actions">

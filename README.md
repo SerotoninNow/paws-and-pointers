@@ -31,6 +31,10 @@ python3 -m venv .venv
 - Logged-in users can like a post (once each; clicking again takes it back).
   The home page can be sorted newest first, oldest first, most liked or most
   commented, via the Sort dropdown or `?sort=newest|oldest|liked|commented`.
+- Every account has a profile at `/user/<username>` and a settings page
+  (click your name in the header) for a display name, pronouns, a bio and a
+  profile picture. Pictures are cropped to a 256px square, re-encoded as WebP
+  and stored in the database, so they sync along with everything else.
 - Data lives in `instance/blog.db`. Delete that file to start fresh.
 
 ## Make it yours
@@ -82,6 +86,11 @@ the virtualenv as above, then run `host.py`. It clones the data repo into
   per hour per IP address; 5 comments per minute per user. Counters are kept
   in memory, so they reset when the app restarts.
 - **Passwords** are stored as salted hashes, never in plain text.
+- **Uploads:** profile pictures are decoded and re-encoded on the server, so
+  only pixels are kept (no metadata, no files disguised as images). Uploads
+  are capped at 4 MB and profile saves at 10 per minute per user.
+- **Impersonation:** a display name can't match another account's username or
+  display name, and the username is always shown beside it.
 
 Posts are trusted: Markdown may contain raw HTML, and only the admin can write
 them. Don't paste Markdown from people you don't trust.

@@ -1,0 +1,11 @@
+{# A user's profile picture, or the tinted cat head if they haven't set one.
+   `user` is any row with username, display_name and avatar_version. #}
+{% macro avatar(user_id, user, large=false) %}
+  {% if user['avatar_version'] %}
+    <img class="avatar-img{{ ' large' if large }}" alt=""
+         src="{{ url_for('avatar', user_id=user_id, v=user['avatar_version']) }}"
+         width="{{ 96 if large else 46 }}" height="{{ 96 if large else 46 }}">
+  {% else %}
+    <div class="avatar{{ ' large' if large }}" style="--hue: {{ user['username']|hue }}" aria-hidden="true">{{ (user|shown_name)[0] }}</div>
+  {% endif %}
+{% endmacro %}

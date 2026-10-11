@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_macros.html" import avatar %}
+
+{% block title %}{{ user|shown_name }} · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="card eared">
+  <div class="profile-head">
+    {{ avatar(user['id'], user, large=true) }}
+    <div>
+      <h1>{{ user|shown_name }}</h1>
+      <div class="line">
+        <span class="handle">@{{ user['username'] }}</span>
+        {% if user['pronouns'] %}<span class="pronouns">{{ user['pronouns'] }}</span>{% endif %}
+        {% if user['is_admin'] %}<span class="badge">author</span>{% endif %}
+        <span class="handle">joined {{ user['created_at']|pretty_date }}</span>
+      </div>
+    </div>
+  </div>
+  {% if user['bio'] %}<p class="profile-bio">{{ user['bio'] }}</p>{% endif %}
+  {% if g.user and g.user['id'] == user['id'] %}
+    <div class="profile-actions">
+      <a class="btn ghost small" href="{{ url_for('settings') }}">Edit profile</a>
+    </div>
+  {% endif %}
+</div>
+
+<section class="comments">
+  <h2>Recent comments</h2>
+  {% if comments %}
+    <ul class="profile-comments">
+      {% for c in comments %}
+        <li class="card">
+          <div class="meta">
+            <a href="{{ url_for('post_detail', slug=c['slug']) }}#comment-{{ c['id'] }}">{{ c['title'] }}</a>
+            <time datetime="{{ c['created_at'] }}">{{ c['created_at']|pretty_date }}</time>
+          </div>
+          <p>{{ c['body']|truncate(220) }}</p>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No comments yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
