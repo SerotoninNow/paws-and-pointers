@@ -52,7 +52,7 @@ python3 -m venv .venv
 | About page text               | `templates/about.html`                 |
 | Colours and fonts             | the `:root` block in `static/style.css`|
 | Mascot (placeholder for now)  | `static/catboy.svg`                    |
-| Logo (placeholder for now)    | `static/favicon.svg`                   |
+| Logo and browser-tab icon     | `static/favicon.svg`                   |
 
 ## Hosting on more than one device
 
