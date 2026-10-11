@@ -26,7 +26,7 @@
         </svg>
       </summary>
       <nav class="tag-menu-panel" aria-label="Filter by tag">
-        <a{{ '' if tag else ' class="active" aria-current="true"'|safe }} href="{{ url_for('index', q=query or None, sort=sort_param) }}">All posts</a>
+        <a {% if not tag %}class="active" aria-current="true" {% endif %}href="{{ url_for('index', q=query or None, sort=sort_param) }}">All posts</a>
         {% for t, count in all_tags %}
           {% if t == tag %}
             <a class="active" aria-current="true" title="Remove this filter" href="{{ url_for('index', q=query or None, sort=sort_param) }}">#{{ t }} <span class="count">{{ count }}</span></a>
@@ -36,18 +36,6 @@
         {% endfor %}
       </nav>
     </details>
-    <script>
-      // Close the tag menu on Escape or a click outside it.
-      (function () {
-        var menu = document.getElementById("tag-menu");
-        document.addEventListener("click", function (e) {
-          if (!menu.contains(e.target)) menu.open = false;
-        });
-        document.addEventListener("keydown", function (e) {
-          if (e.key === "Escape") menu.open = false;
-        });
-      })();
-    </script>
   {% endif %}
 </div>
 
@@ -65,7 +53,7 @@
     {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
     <label>
       Sort
-      <select name="sort" onchange="this.form.submit()">
+      <select name="sort" data-autosubmit>
         {% for key, (label, _) in sorts.items() %}
           <option value="{{ key }}"{{ ' selected' if key == sort else '' }}>{{ label }}</option>
         {% endfor %}

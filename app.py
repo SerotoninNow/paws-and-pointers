@@ -7,6 +7,8 @@ import os
 import re
 import secrets
 import sqlite3
+import time
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
@@ -38,7 +40,33 @@ DB_PATH = INSTANCE_DIR / "blog.db"
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 MIN_PASSWORD_LEN = 8
+MAX_PASSWORD_LEN = 200
 MAX_COMMENT_LEN = 2000
+MAX_TITLE_LEN = 150
+MAX_SUMMARY_LEN = 300
+MAX_TAGS_LEN = 150
+
+# Rate limits: name -> (max events, per this many seconds).
+RATE_LIMITS = {
+    "login": (8, 15 * 60),  # failed logins per IP address
+    "register": (5, 60 * 60),  # new accounts per IP address
+    "comment": (5, 60),  # comments per user
+}
+
+# Sent with every response. Scripts may only come from /static, so injected
+# markup can't run code; nothing may frame the site (clickjacking).
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self';"
+        " style-src-attr 'unsafe-inline'; img-src 'self' data: https:;"
+        " object-src 'none'; base-uri 'self'; form-action 'self';"
+        " frame-ancestors 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
 MAX_QUERY_LEN = 100
 
 # Home page orderings: key -> (label, ORDER BY clause).
@@ -68,6 +96,8 @@ app.config.update(
     SECRET_KEY=load_secret_key(),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
+    # Set SESSION_COOKIE_SECURE=1 when serving over HTTPS.
+    SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
     MAX_CONTENT_LENGTH=1024 * 1024,
 )
 
@@ -152,6 +182,46 @@ def init_db():
         )
     db.commit()
     db.close()
+
+
+# ---------------------------------------------------------------- security --
+@app.after_request
+def set_security_headers(response):
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if app.config["SESSION_COOKIE_SECURE"]:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
+
+# Recent event times per (limit name, key). Kept in memory, so it resets on
+# restart and is per-process if you run several workers.
+_rate_events = defaultdict(deque)
+
+
+def _recent_events(name, key):
+    events = _rate_events[(name, key)]
+    cutoff = time.monotonic() - RATE_LIMITS[name][1]
+    while events and events[0] < cutoff:
+        events.popleft()
+    return events
+
+
+def rate_limited(name, key):
+    return len(_recent_events(name, key)) >= RATE_LIMITS[name][0]
+
+
+def record_event(name, key):
+    _recent_events(name, key).append(time.monotonic())
+    if len(_rate_events) > 10_000:  # don't let the table grow without bound
+        for k in [k for k, v in _rate_events.items() if not v]:
+            del _rate_events[k]
+
+
+def client_ip():
+    return request.remote_addr or "unknown"
 
 
 # ------------------------------------------------------------ auth helpers --
@@ -297,6 +367,9 @@ def index():
     sort = request.args.get("sort", DEFAULT_SORT)
     if sort not in SORTS:
         sort = DEFAULT_SORT
+    # The ORDER BY is the only SQL built from a string, and it comes from the
+    # fixed SORTS table above, never from the request. Everything else is
+    # passed as ? parameters.
     posts = get_db().execute(
         "SELECT p.*,"
         " (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS n_comments,"
@@ -389,7 +462,10 @@ def add_comment(slug):
         flash("You can't post an empty comment.", "error")
     elif len(body) > MAX_COMMENT_LEN:
         flash(f"Comments are limited to {MAX_COMMENT_LEN} characters.", "error")
+    elif rate_limited("comment", g.user["id"]):
+        flash("You're commenting too fast. Wait a minute and try again.", "error")
     else:
+        record_event("comment", g.user["id"])
         db = get_db()
         db.execute(
             "INSERT INTO comments (post_id, user_id, body, created_at) VALUES (?, ?, ?, ?)",
@@ -434,12 +510,17 @@ def register():
             error = "Usernames are 3 to 20 characters. Letters, numbers and underscores only."
         elif len(password) < MIN_PASSWORD_LEN:
             error = f"Passwords need at least {MIN_PASSWORD_LEN} characters."
+        elif len(password) > MAX_PASSWORD_LEN:
+            error = f"Passwords can be at most {MAX_PASSWORD_LEN} characters."
         elif password != confirm:
             error = "Those passwords don't match."
         elif db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
             error = "That username is already taken."
+        elif rate_limited("register", client_ip()):
+            error = "Too many new accounts from this address. Try again later."
 
         if error is None:
+            record_event("register", client_ip())
             # The very first account owns the blog.
             is_first = db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
             cur = db.execute(
@@ -468,16 +549,21 @@ def login():
     username = ""
     if request.method == "POST":
         username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
+        password = request.form.get("password", "")[:MAX_PASSWORD_LEN + 1]
+        if rate_limited("login", client_ip()):
+            flash("Too many failed logins. Wait a few minutes and try again.", "error")
+            return render_template("login.html", username=username), 429
         user = get_db().execute(
             "SELECT * FROM users WHERE username = ?", (username,)
         ).fetchone()
         ok = check_password_hash(user["password_hash"] if user else DUMMY_HASH, password)
         if user and ok:
+            _rate_events.pop(("login", client_ip()), None)
             session.clear()
             session["user_id"] = user["id"]
             flash(f"Logged in as {user['username']}.", "ok")
             return redirect(safe_next(request.args.get("next")))
+        record_event("login", client_ip())
         flash("Wrong username or password.", "error")
     return render_template("login.html", username=username)
 
@@ -492,9 +578,9 @@ def logout():
 # ------------------------------------------------------------ post editing --
 def read_post_form():
     return {
-        "title": request.form.get("title", "").strip(),
-        "summary": request.form.get("summary", "").strip(),
-        "tags": ", ".join(tag_list(request.form.get("tags", ""))),
+        "title": request.form.get("title", "").strip()[:MAX_TITLE_LEN],
+        "summary": request.form.get("summary", "").strip()[:MAX_SUMMARY_LEN],
+        "tags": ", ".join(tag_list(request.form.get("tags", "")[:MAX_TAGS_LEN])),
         "body_md": request.form.get("body_md", "").strip(),
     }
 
